@@ -164,21 +164,21 @@ if __name__ == '__main__':
                 target_signal,
             )
 
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            optimizer.zero_grad()  # 将上一次迭代累积的梯度清零, 防止梯度混淆
+            loss.backward()  # 对loss进行反向传播, 计算各参数的梯度
+            optimizer.step()  # 根据计算得到的梯度更新模型参数, 实现一次参数的更新
 
             meter.update({
                 'iter_time': {'val': elapse_iter},
                 **loss_dict,
-            })
+            })  # 这里调用了meter对象的update方法, 将本地迭代的统计数据传入. 字典中包含两个部分, iter_time记录了本次迭代所花费的时间, **loss_dict使用了字典解包, 将loss_dict中的所有键值对展开并加入到更新的字典中, 这样可以同时记录多个损失指标
 
             # Dump training stats in log file
-            if (iterations + 1) % config['log_iter'] == 0:
-                etas = meter.iter_time.avg * (max_iter - iterations - 1)
-                memory = torch.cuda.max_memory_allocated() / 1024. / 1024.
+            if (iterations + 1) % config['log_iter'] == 0: # 当当前迭代次数+1能够被配置项config['log_iter']整除时, 进入日志输出的流程. 这样可以按照设定的间隔输出训练状态, 而不是每一次迭代都输出
+                etas = meter.iter_time.avg * (max_iter - iterations - 1)  # 计算剩余训练时间(etas), 使用meter.iter_time.avg表示每次迭代的平均耗时, 再乘以剩余迭代次数(max_iter-iterations-1), 得到剩余训练时间
+                memory = torch.cuda.max_memory_allocated() / 1024. / 1024.  # 通过torch.cuda.max_memory_allocated()获取GPU上分配的最大内存(单位为字节), 再除以1024两次转换为MB, 以便直观地监控GPU内存使用量.
                 loss_log = ''
-                for loss_key, loss_item in loss_dict.items():
+                for loss_key, loss_item in loss_dict.items():  # 遍历loss_dict中的每个损失项, 将每个损失的当前值val, 对应的权重loss_item["weight"]以及平均值avg格式化后拼接到字符串loss_log中
                     loss_log += f'{loss_key} {meter[loss_key].val:.4f}*{loss_item["weight"]} ({meter[loss_key].avg:.4f})\t'
                 log = f'Train: [{iterations + 1}/{max_iter}]\teta {datetime.timedelta(seconds=int(etas))}\ttime {meter.iter_time.val:.2f} ({meter.iter_time.avg:.2f})\t'
                 log += f'time_data {elapse_data:.2f}\t'
@@ -189,9 +189,9 @@ if __name__ == '__main__':
             iterations += 1
 
         # Save network weights
-        if (epoch+1) % 50 == 0:
-            model_state_dict_name = os.path.join(checkpoint_directory, f'Epoch_{epoch + 1:03d}.bin')
-            if dist.get_rank() == 0:
-                torch.save({k: v.cpu() for k, v in model.state_dict().items()}, model_state_dict_name)
+        if (epoch+1) % 50 == 0:  # 每经过50个epoch, 就会执行保存操作
+            model_state_dict_name = os.path.join(checkpoint_directory, f'Epoch_{epoch + 1:03d}.bin')  # 使用了格式化字符串, 格式为Epoch_XXX.bin
+            if dist.get_rank() == 0:  # 在分布式训练中, 每个进程都会运行该代码, 为了避免重复保存模型, 只让进程号为0的进程执行保存操作
+                torch.save({k: v.cpu() for k, v in model.state_dict().items()}, model_state_dict_name)  # 分布式训练会通过梯度同步等机制确保各进程的参数一致, 因此只需要由进程0保存一次模型权重即可, 避免重复保存和可能出现的文件冲突
             logger.info(f'save epoch {epoch + 1} model to {model_state_dict_name}')
 
