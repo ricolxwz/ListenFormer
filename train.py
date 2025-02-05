@@ -76,6 +76,7 @@ if __name__ == '__main__':
 
     # -- Init distributed
     # 在分布式训练中, rank表示当前进程的编号, world_size表示所有参与训练的进程总数, 例如, 如果你在使用4块GPU进行训练, 通常会为每块GPU分配一个进程, 此时, world_size为4, 而每个进程的rank分别为0, 1, 2, 3. rank表示每个进程在整个分布式系统(有好多台机器, 每台机器又有很多的GPU)的全局唯一标识, 而local_rank表示当前进程在所在的本台机器上分配到的GPU设备编号, 用于指定该进程使用哪块GPU. 当训练在多台机器上进行的时候, rank是跨机器的全局编号, 而local_rank只在单个机器内部起作用
+    # main函数并不是只运行一次, 而是在每个进程都执行一次, 通常使用像torch.distributed.launch或者torchrun这样的工具启动程序的时候, 会自动创建多个独立的进程, 每个进程都运行同样的代码, 但是它们会收到不同的环境变量(例如RANK和local_rank). 这样, 每个进程都能调用torch.cuda_set_device(opts.LOCAL_RANK)来绑定到不同的GPU, 从而实现多GPU并行计算.
     if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
         rank = int(os.environ['RANK'])
         world_size = int(os.environ['WORLD_SIZE'])
@@ -109,10 +110,10 @@ if __name__ == '__main__':
         model = ListenerGenerator_trans_ca(config)
     else:  # 如果是说者头部生成, 则使用SpeakerGenerator类构建模型, 传入参数config
         model = SpeakerGenerator(config)
-    if opts.resume is not None:
+    if opts.resume is not None:  # 如果opts.resume不为None, 说明需要从指定的检查点恢复模型参数
         print(f'resume model from {opts.resume}.')
-        model.load_state_dict({k.replace('module.', '', 1): v for k, v in torch.load(opts.resume).items()})
-    model = model.cuda()
+        model.load_state_dict({k.replace('module.', '', 1): v for k, v in torch.load(opts.resume).items()})  # 这里的中是移除状态字典中每个键的前缀module., 这通常是因为模型保存的时候可能用了DataParallel或DistributedDataParallel封装, 导致参数名带有module.前缀, 而恢复的时候需要和模型实际参数名匹配
+    model = model.cuda()  # 将构建好的模型移动到GPU上运行, 调用model.cuda()之后, 模型会被分配到之前通过torch.cuda_set_device设置的当前GPU上
     logger.info(str(model))
 
     # -- Init optimizer
@@ -120,18 +121,18 @@ if __name__ == '__main__':
                             betas=config.betas, weight_decay=config.weight_decay)
 
     model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[config.LOCAL_RANK], broadcast_buffers=False, find_unused_parameters=True)
-    model_without_ddp = model.module
+    model_without_ddp = model.module  # 将模型包装为DistributedDataParallel(DDP)模型, 使其能够在多个GPU上进行并行训练, 使用DDP之后, 每个进程会有一个模型的副本, 进程间通过通信机制同步梯度, 这样, 在每个进程中计算得到的梯度会在反向传播的时候自动聚合, 实现多GPU的并行训练. 默认情况下, DDP期望模型中所有参数在前向传播过程中都会被使用, 如果某些参数由于模型结构的条件性计算(例如存在if-else分支, 动态计算图等)而没有参与当前前向传播, DDP可能会报错. broadcase_buffers=False表示不自动同步模型中的缓冲区(例如batch normalization的统计信息)
 
-    n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)  # 统计模型中所有需要梯度更新的参数总数. p.numel()返回每个参数tensor中的元素个数, 只有requires_grad为True的参数才会被计算在内.
     logger.info(f'number of params: {n_parameters}')
 
     lr_scheduler = get_scheduler(optimizer, config)
 
-    meter = DictAverageMeter(*['iter_time', 'TOTAL_LOSS', 'loss_angle', 'loss_angle_spiky', 'loss_exp', 'loss_exp_spiky', 'loss_trans', 'loss_trans_spiky', 'loss_crop', 'loss_crop_spiky'])
+    meter = DictAverageMeter(*['iter_time', 'TOTAL_LOSS', 'loss_angle', 'loss_angle_spiky', 'loss_exp', 'loss_exp_spiky', 'loss_trans', 'loss_trans_spiky', 'loss_crop', 'loss_crop_spiky'])  # *[]的作用是将一个列表中的元素解包为独立的参数传递给函数或者构造函数
     iterations = 0
-    max_iter = config.max_epochs * len(loader)
+    max_iter = config.max_epochs * len(loader)  # 最大迭代次数
 
-    for epoch in range(config.max_epochs):
+    for epoch in range(config.max_epochs):  # 遍历所有的epoch
         meter.reset()
         lr_scheduler.step()
         loader.sampler.set_epoch(epoch)
