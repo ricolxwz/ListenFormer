@@ -53,8 +53,9 @@ if __name__ == '__main__':
     print("Use configs:", vars(opts))
 
     # Load experiment setting
-    config = get_config(opts.config)
-    config = Box(config)
+    config = get_config(opts.config)  # 读取YAML配置文件
+    config = Box(config)  # 使用Box将配置转换为支持属性访问的字典
+    # 如果命令行中指定了batch_sze, anno_fn, loss_weights, temporal_size, max_epochs或者lr, 则使用命令行参数覆盖配置文件中的对应设置
     if opts.batch_size is not None:
         config.batch_size = opts.batch_size
     if opts.anno_fn is not None:
@@ -74,6 +75,7 @@ if __name__ == '__main__':
     print('Using config:', config)
 
     # -- Init distributed
+    # 在分布式训练中, rank表示当前进程的编号, world_size表示所有参与训练的进程总数, 例如, 如果你在使用4块GPU进行训练, 通常会为每块GPU分配一个进程, 此时, world_size为4, 而每个进程的rank分别为0, 1, 2, 3. rank表示每个进程在整个分布式系统(有好多台机器, 每台机器又有很多的GPU)的全局唯一标识, 而local_rank表示当前进程在所在的本台机器上分配到的GPU设备编号, 用于指定该进程使用哪块GPU. 当训练在多台机器上进行的时候, rank是跨机器的全局编号, 而local_rank只在单个机器内部起作用
     if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
         rank = int(os.environ['RANK'])
         world_size = int(os.environ['WORLD_SIZE'])
@@ -82,30 +84,30 @@ if __name__ == '__main__':
         rank = -1
         world_size = -1
     opts.LOCAL_RANK = opts.local_rank
-    torch.cuda.set_device(opts.LOCAL_RANK)
-    torch.distributed.init_process_group(backend='nccl', init_method='env://', world_size=world_size, rank=rank)
+    torch.cuda.set_device(opts.LOCAL_RANK)  # 每个进程根据自己的local_rank绑定到对应的GPU
+    torch.distributed.init_process_group(backend='nccl', init_method='env://', world_size=world_size, rank=rank)  # 使用NCCL作为通信后端, 通过环境变量获取初始化信息
     config.LOCAL_RANK = opts.LOCAL_RANK
-    torch.distributed.barrier()
+    torch.distributed.barrier()  # 使用barrier进行进程同步, 确保所有进程都完成上述初始化后再继续执行后续代码
 
-    seed = opts.SEED + dist.get_rank()
+    seed = opts.SEED + dist.get_rank()  # 为每个进程生成一个独一无二的随机种子, 防止不同进程产生相同的随机数序列
     torch.manual_seed(seed)
     np.random.seed(seed)
-    cudnn.benchmark = True
+    cudnn.benchmark = True  # 启动cudnn的benchmark模式, 该模式会在固定输入尺寸下自动寻找最优的卷积算法, 从而提升GPU计算性能, 加速训练过程
 
     output_directory = os.path.join(opts.output_path)
     checkpoint_directory = prepare_sub_folder(output_directory)
-    logger = create_logger(output_directory, dist.get_rank(), os.path.basename(output_directory.strip('/')))
-    if dist.get_rank() == 0:
-        shutil.copy(opts.config, os.path.join(output_directory, 'config.yaml'))
+    logger = create_logger(output_directory, dist.get_rank(), os.path.basename(output_directory.strip('/')))  # 初始化日志记录器, 传入的参数包括输出目录, 当前进程的全局rank(通过dist.get_rank())获取以及输出目录的基本名称
+    if dist.get_rank() == 0:  # 判断当前进程的rank是否为0, 这个进程比较特殊, 会负责一些全局性的工作, 避免重复操作
+        shutil.copy(opts.config, os.path.join(output_directory, 'config.yaml'))  # 如果当前进程是rank为0的进程, 则将配置文件opts.config复制到输出目录, 并命名为config.yaml
 
     # -- Init data loader
-    loader = get_data_loader(config, opts.task, opts.time_size)
+    loader = get_data_loader(config, opts.task, opts.time_size)  # 这里调用get_data_loader函数, 根据config, opts.task和opts.time_size等参数初始化数据加载器, 数据加载器负责从数据集加载数据, 并按照预定的批次和数据预处理方式提供数据, 供模型训练或者验证使用. 加载器返回的对象通常是一个可迭代对象, 每次迭代生成一个数据批次
     logger.info("Len loader: {}".format(len(loader)))
 
     # -- Init model
-    if opts.task == 'listener':
+    if opts.task == 'listener':  # 如果是听者头部生成, 则使用ListenerGenerator_trans_ca类构建模型, 传入参数config
         model = ListenerGenerator_trans_ca(config)
-    else:
+    else:  # 如果是说者头部生成, 则使用SpeakerGenerator类构建模型, 传入参数config
         model = SpeakerGenerator(config)
     if opts.resume is not None:
         print(f'resume model from {opts.resume}.')
