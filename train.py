@@ -139,6 +139,7 @@ if __name__ == '__main__':
         model.train()  # 将模型设置为训练模式, 启用诸如dropout, BN等训练时特有的行为
         postfix = "%03d" % (epoch + 1)
         for id, data in enumerate(loader):  # 遍历数据加载器中的所有数据批次, 每个批次数据会依次被处理
+            start_data = time.time()
             audio, driven_signal, init_signal, target_signal, lengths, _, attitude = data  # 将加载的批次数据拆分为多个变量. 这里使用的下划线_来忽略数据中的一个字段
 
             # 对每个tensor调用.cuda()方法, 将数据从CPU转移到GPU
