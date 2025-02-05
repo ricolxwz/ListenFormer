@@ -133,14 +133,15 @@ if __name__ == '__main__':
     max_iter = config.max_epochs * len(loader)  # 最大迭代次数
 
     for epoch in range(config.max_epochs):  # 遍历所有的epoch
-        meter.reset()
-        lr_scheduler.step()
-        loader.sampler.set_epoch(epoch)
-        model.train()
+        meter.reset()  # 重置用于记录和统计指标的对象, 使得每个epoch的统计数据都是独立的
+        lr_scheduler.step()  # 更新学习率, 根据预设的策略调整学习率
+        loader.sampler.set_epoch(epoch)  # 设置数据加载器中采样器的当前轮数, 通常用于分布式训练时保证数据分布的随机性
+        model.train()  # 将模型设置为训练模式, 启用诸如dropout, BN等训练时特有的行为
         postfix = "%03d" % (epoch + 1)
-        for id, data in enumerate(loader):
-            audio, driven_signal, init_signal, target_signal, lengths, _, attitude = data
+        for id, data in enumerate(loader):  # 遍历数据加载器中的所有数据批次, 每个批次数据会依次被处理
+            audio, driven_signal, init_signal, target_signal, lengths, _, attitude = data  # 将加载的批次数据拆分为多个变量. 这里使用的下划线_来忽略数据中的一个字段
 
+            # 对每个tensor调用.cuda()方法, 将数据从CPU转移到GPU
             audio = audio.cuda().float()
             driven_signal = driven_signal.cuda().float()
             init_signal = init_signal.cuda().float()
@@ -148,6 +149,7 @@ if __name__ == '__main__':
             lengths = lengths.cuda().long()
             attitude = attitude.cuda().float()
 
+            # 这里计算当前时间和开始时间的差值, 得到数据加载的时间, 这里貌似忘记定义start_data了
             elapse_data = time.time() - start_data
 
             # Main training code
