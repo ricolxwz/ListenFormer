@@ -26,12 +26,13 @@ class ListenerGenerator_trans_ca(nn.Module):
         self.dynam_3dmm_split = [3, 64, 3, 3]
 
 
-        self.driven_proj = nn.Linear(73, 256)
+        self.driven_proj = nn.Linear(73, 256)  # 一个隐藏层, 输入维度是73, 输出维度是256, 复杂将3DMM投影到隐空间
 
-        self.ca = AttentionBlock(d_model=256, nhead=8, dim_feedforward=1024, dropout=0.1)
+        self.ca = AttentionBlock(d_model=256, nhead=8, dim_feedforward=1024, dropout=0.1)  # 一个自定义的注意力块, 其中d_model=256, nhead=8, dim_feedforward=1024等参数, 该模块实现了多头注意力和前馈神经网络等功能, 并且带有可选的dropout
 
-        self.encoder = TransformerEncoder(input_size=45, output_size=256, linear_units=1024, input_layer='linear', num_blocks=3, dropout_rate=0.1, attention_heads=4)
-        self.decoder = TransformerDecoder(vocab_size=73, encoder_output_size=256, num_blocks=3, linear_units=1024, input_layer='embed', use_output_layer=True, dropout_rate=0.1, attention_heads=4)
+        # AttentionBlock是一个单独的注意力层模块, 通常只代表Transformer中的一层, 而TransformerEncoder则是一个完整的编码器模块, 它通常由多个这样的注意力层堆叠而成, 并且还可能包括输入投影, 位置编码等额外的处理步骤.
+        self.encoder = TransformerEncoder(input_size=45, output_size=256, linear_units=1024, input_layer='linear', num_blocks=3, dropout_rate=0.1, attention_heads=4)  # 一个Transformer编码器, 输入尺寸为45, 输出尺寸为256, 并包含三层, 内部包含多头注意力和前馈网络, 这个用于对音频特征进行编码
+        self.decoder = TransformerDecoder(vocab_size=73, encoder_output_size=256, num_blocks=3, linear_units=1024, input_layer='embed', use_output_layer=True, dropout_rate=0.1, attention_heads=4)  # 一个Transformer解码器, 用于将编码器的输出转化为想要的预测特征(假设为73维), 与编码器类似, 也包含3层, 多头注意力等.
 
     def predict(
         self,
